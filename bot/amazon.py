@@ -10,6 +10,7 @@ sabe seguir funcionando con lo que tenga (como minimo el enlace y el grafico
 de Keepa siempre funcionan).
 """
 import re
+import json
 import logging
 from dataclasses import dataclass
 
@@ -159,16 +160,43 @@ def scrape(url: str, asin: str) -> Product:
     )
     product.list_price = _parse_price(list_text)
 
-    # --- Imagen ---
-    img = soup.select_one("#landingImage")
-    if img:
-        product.image_url = img.get("data-old-hires") or img.get("src")
-    if not product.image_url:
-        og_img = soup.select_one('meta[property="og:image"]')
-        if og_img:
-            product.image_url = og_img.get("content")
+    # --- Imagen (varias fuentes, de mas fiable a menos) ---
+    product.image_url = _extract_image(soup, resp.text)
 
     return product
+
+
+def _extract_image(soup: BeautifulSoup, html: str) -> str | None:
+    # 1. Imagen principal en alta resolucion.
+    img = soup.select_one("#landingImage") or soup.select_one("#imgBlkFront")
+    if img:
+        url = img.get("data-old-hires")
+        if url:
+            return url
+        # 2. data-a-dynamic-image: JSON {url: [w,h], ...}. Cogemos la mayor.
+        dyn = img.get("data-a-dynamic-image")
+        if dyn:
+            try:
+                data = json.loads(dyn)
+                if data:
+                    best = max(data.items(), key=lambda kv: kv[1][0] * kv[1][1])
+                    return best[0]
+            except (json.JSONDecodeError, ValueError, IndexError, TypeError):
+                pass
+        if img.get("src", "").startswith("http"):
+            return img.get("src")
+    # 3. Blob de JavaScript con "hiRes":"https://..."
+    m = re.search(r'"hiRes"\s*:\s*"(https://[^"]+?\.jpg)"', html)
+    if m:
+        return m.group(1)
+    m = re.search(r'"large"\s*:\s*"(https://[^"]+?\.jpg)"', html)
+    if m:
+        return m.group(1)
+    # 4. Ultimo recurso: og:image.
+    og_img = soup.select_one('meta[property="og:image"]')
+    if og_img and og_img.get("content"):
+        return og_img.get("content")
+    return None
 
 
 def process_link(raw_url: str) -> Product | None:

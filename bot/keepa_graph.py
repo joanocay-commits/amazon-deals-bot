@@ -8,8 +8,13 @@ import logging
 import requests
 
 from . import config
+from .amazon import HEADERS
 
 log = logging.getLogger(__name__)
+
+# Keepa rechaza peticiones sin cabeceras de navegador (responde 403).
+KEEPA_HEADERS = dict(HEADERS)
+KEEPA_HEADERS["Referer"] = "https://keepa.com/"
 
 BASE = "https://graph.keepa.com/pricehistory.png"
 
@@ -34,7 +39,7 @@ def download(asin: str) -> bytes | None:
         return None
     url = graph_url(asin)
     try:
-        resp = requests.get(url, timeout=20)
+        resp = requests.get(url, headers=KEEPA_HEADERS, timeout=20)
         resp.raise_for_status()
         if "image" not in resp.headers.get("Content-Type", ""):
             log.warning("Keepa no devolvio una imagen para %s", asin)

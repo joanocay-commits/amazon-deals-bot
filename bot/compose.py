@@ -41,6 +41,17 @@ def _fit_width(img: Image.Image, width: int) -> Image.Image:
     return img.resize((width, new_height), Image.LANCZOS)
 
 
+def _fit_box(img: Image.Image, max_w: int, max_h: int) -> Image.Image:
+    """Escala la imagen entera para que quepa en max_w x max_h, sin recortar."""
+    ratio = min(max_w / img.width, max_h / img.height)
+    if ratio >= 1:
+        return img
+    return img.resize(
+        (max(1, int(img.width * ratio)), max(1, int(img.height * ratio))),
+        Image.LANCZOS,
+    )
+
+
 def build_post_image(product_image_url: str | None, graph_bytes: bytes | None) -> bytes | None:
     """Devuelve los bytes JPEG de la imagen compuesta, o None si no hay nada.
 
@@ -51,14 +62,8 @@ def build_post_image(product_image_url: str | None, graph_bytes: bytes | None) -
 
     product_img = _download_image(product_image_url)
     if product_img:
-        product_img = _fit_width(product_img, inner_width)
-        # Limita la altura del producto para que no domine.
-        max_h = 420
-        if product_img.height > max_h:
-            crop_top = (product_img.height - max_h) // 2
-            product_img = product_img.crop(
-                (0, crop_top, product_img.width, crop_top + max_h)
-            )
+        # Encaja la imagen entera dentro de un recuadro, sin recortar nada.
+        product_img = _fit_box(product_img, inner_width, 460)
 
     graph_img = None
     if graph_bytes:
@@ -78,7 +83,8 @@ def build_post_image(product_image_url: str | None, graph_bytes: bytes | None) -
     canvas = Image.new("RGB", (CANVAS_WIDTH, total_height), BG)
     y = MARGIN
     for p in parts:
-        canvas.paste(p, (MARGIN, y))
+        x = (CANVAS_WIDTH - p.width) // 2
+        canvas.paste(p, (x, y))
         y += p.height + GAP
 
     return _to_jpeg(canvas)
