@@ -28,11 +28,15 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     level=logging.INFO,
 )
+# Silencia el ruido de las librerias para que se vean nuestras lineas importantes.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("bot")
 
 # Sube este numero en cada cambio. Sirve para comprobar en los logs que el NAS
 # esta corriendo de verdad la version nueva (y no una imagen vieja en cache).
-VERSION = "1.2"
+VERSION = "1.3"
 
 # Posts pendientes de confirmar: token -> payload
 PENDING: dict[str, dict] = {}
