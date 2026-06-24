@@ -1,0 +1,33 @@
+# docker-compose para UGOS Pro (NAS UGREEN)
+#
+# Como usarlo en UGOS:
+#   Docker -> Proyectos (o "Compose") -> Crear -> pega este contenido.
+#
+# Antes de arrancar:
+#   1. Haz publica la imagen en GitHub (Packages -> amazon-deals-bot ->
+#      Package settings -> Change visibility -> Public).
+#   2. Rellena BOT_TOKEN y CHANNEL_ID mas abajo.
+#   3. Para el contenedor de botaffiumeiro (no pueden compartir token a la vez).
+
+services:
+  bot:
+    image: ghcr.io/joanocay-commits/amazon-deals-bot:latest
+    container_name: amazon-deals-bot
+    restart: always
+    environment:
+      # --- Obligatorias ---
+      BOT_TOKEN: "PON_AQUI_TU_TOKEN"
+      CHANNEL_ID: "@tu_canal"          # o el id -100xxxxxxxxxx
+      AFFILIATE_TAG: "jack051-21"
+      # --- Opcionales (puedes borrarlas para usar los valores por defecto) ---
+      STAGING_CHAT_ID: ""              # chat donde pegas enlaces; vacio = cualquiera
+      AUTO_PUBLISH: "false"            # true = publica sin vista previa
+      AMAZON_DOMAIN: "amazon.es"
+      KEEPA_DOMAIN: "es"
+      SHOW_KEEPA_GRAPH: "true"
+      MIN_WINDOW_DAYS: "0"             # 0 = minimo de todo el historial
+      REFRESH_EVERY_HOURS: "24"
+      DB_PATH: "/app/data/prices.db"
+    volumes:
+      # Carpeta del NAS  :  carpeta dentro del contenedor (la base de datos)
+      - /volume1/docker/amazon-deals-bot:/app/data
