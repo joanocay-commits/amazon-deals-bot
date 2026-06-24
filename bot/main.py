@@ -2,7 +2,8 @@
 
 Flujo (modo asistido):
 1. Pegas un enlace de Amazon en el chat privado / grupo donde esta el bot.
-2. El bot extrae datos, compone la imagen (producto + grafico Keepa) y el texto.
+2. El bot extrae datos y prepara la foto del producto y el grafico de Keepa
+   como imagenes separadas (album), mas el texto.
 3. Te manda una VISTA PREVIA con botones "Publicar" / "Cancelar".
 4. Al pulsar Publicar, lo envia al canal.
 
@@ -11,7 +12,12 @@ Si AUTO_PUBLISH=true, se salta la vista previa y publica directo.
 import logging
 import uuid
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    Update,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -85,18 +91,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if product.price is not None:
         pricedb.record_price(product.asin, product.price)
 
-    graph = keepa_graph.download(product.asin)
-    image = compose.build_post_image(product.image_url, graph)
+    # Producto y grafico como imagenes SEPARADAS (album de Telegram).
+    product_bytes = compose.product_jpeg(product.image_url)
+    graph_bytes = keepa_graph.download(product.asin)
     caption = post.build_caption(product, info)
+    payload = {"product": product_bytes, "graph": graph_bytes, "caption": caption}
 
     if config.AUTO_PUBLISH:
-        await _publish(context, image, caption)
+        await _send_post(context, config.CHANNEL_ID, payload)
         await status.edit_text("✅ Publicado en el canal.")
         return
 
-    # Vista previa con botones.
+    # Vista previa: muestra el post y luego un mensaje con botones.
     token = uuid.uuid4().hex[:10]
-    PENDING[token] = {"photo": image, "caption": caption}
+    PENDING[token] = payload
     keyboard = InlineKeyboardMarkup(
         [
             [
@@ -106,56 +114,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ]
     )
     await status.delete()
-    if image:
-        await update.message.reply_photo(
-            photo=image, caption=caption, parse_mode="HTML", reply_markup=keyboard
-        )
-    else:
-        await update.message.reply_text(
-            caption, parse_mode="HTML", reply_markup=keyboard,
-            disable_web_page_preview=False,
-        )
+    await _send_post(context, update.effective_chat.id, payload)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="👆 Vista previa. ¿Publicar en el canal?",
+        reply_markup=keyboard,
+    )
 
 
-async def _publish(context: ContextTypes.DEFAULT_TYPE, image: bytes | None, caption: str) -> None:
-    if image:
-        await context.bot.send_photo(
-            chat_id=config.CHANNEL_ID, photo=image, caption=caption, parse_mode="HTML"
-        )
-    else:
+async def _send_post(context: ContextTypes.DEFAULT_TYPE, chat_id, payload: dict) -> None:
+    """Envia el post: album (producto + grafico), una sola foto, o solo texto."""
+    caption = payload["caption"]
+    photos = [p for p in (payload["product"], payload["graph"]) if p]
+
+    if not photos:
         await context.bot.send_message(
-            chat_id=config.CHANNEL_ID, text=caption, parse_mode="HTML"
+            chat_id=chat_id, text=caption, parse_mode="HTML"
         )
+        return
+    if len(photos) == 1:
+        await context.bot.send_photo(
+            chat_id=chat_id, photo=photos[0], caption=caption, parse_mode="HTML"
+        )
+        return
+    media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")]
+    media += [InputMediaPhoto(p) for p in photos[1:]]
+    await context.bot.send_media_group(chat_id=chat_id, media=media)
 
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
     action, _, token = query.data.partition(":")
-    payload = PENDING.pop(token, None)
 
     if action == "cancel":
-        if query.message.photo:
-            await query.edit_message_caption(caption="❌ Cancelado.")
-        else:
-            await query.edit_message_text("❌ Cancelado.")
+        PENDING.pop(token, None)
+        await query.edit_message_text("❌ Cancelado.")
         return
 
     if action == "pub":
+        payload = PENDING.pop(token, None)
         if not payload:
-            await query.answer("Este post ya caducó, vuelve a pegar el enlace.", show_alert=True)
+            await query.answer(
+                "Este post ya caducó, vuelve a pegar el enlace.", show_alert=True
+            )
             return
-        await _publish(context, payload["photo"], payload["caption"])
-        if query.message.photo:
-            await query.edit_message_caption(
-                caption=payload["caption"] + "\n\n✅ <i>Publicado en el canal</i>",
-                parse_mode="HTML",
-            )
-        else:
-            await query.edit_message_text(
-                payload["caption"] + "\n\n✅ <i>Publicado en el canal</i>",
-                parse_mode="HTML",
-            )
+        await _send_post(context, config.CHANNEL_ID, payload)
+        await query.edit_message_text("✅ Publicado en el canal.")
 
 
 async def refresh_prices(context: ContextTypes.DEFAULT_TYPE) -> None:
