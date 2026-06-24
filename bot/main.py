@@ -12,12 +12,7 @@ Si AUTO_PUBLISH=true, se salta la vista previa y publica directo.
 import logging
 import uuid
 
-from telegram import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    InputMediaPhoto,
-    Update,
-)
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -123,23 +118,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def _send_post(context: ContextTypes.DEFAULT_TYPE, chat_id, payload: dict) -> None:
-    """Envia el post: album (producto + grafico), una sola foto, o solo texto."""
-    caption = payload["caption"]
-    photos = [p for p in (payload["product"], payload["graph"]) if p]
+    """Envia el post con send_photo (metodo probado y fiable).
 
-    if not photos:
+    Foto del producto con el texto + grafico de Keepa como segunda foto aparte.
+    Si falta alguna, se adapta. Si no hay ninguna, manda solo texto.
+    """
+    caption = payload["caption"]
+    product = payload["product"]
+    graph = payload["graph"]
+
+    if product:
+        await context.bot.send_photo(
+            chat_id=chat_id, photo=product, caption=caption, parse_mode="HTML"
+        )
+        if graph:
+            await context.bot.send_photo(chat_id=chat_id, photo=graph)
+    elif graph:
+        await context.bot.send_photo(
+            chat_id=chat_id, photo=graph, caption=caption, parse_mode="HTML"
+        )
+    else:
         await context.bot.send_message(
             chat_id=chat_id, text=caption, parse_mode="HTML"
         )
-        return
-    if len(photos) == 1:
-        await context.bot.send_photo(
-            chat_id=chat_id, photo=photos[0], caption=caption, parse_mode="HTML"
-        )
-        return
-    media = [InputMediaPhoto(photos[0], caption=caption, parse_mode="HTML")]
-    media += [InputMediaPhoto(p) for p in photos[1:]]
-    await context.bot.send_media_group(chat_id=chat_id, media=media)
 
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -161,6 +162,11 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         await _send_post(context, config.CHANNEL_ID, payload)
         await query.edit_message_text("✅ Publicado en el canal.")
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Registra cualquier excepcion no controlada en el log."""
+    log.error("Error procesando una actualizacion:", exc_info=context.error)
 
 
 async def refresh_prices(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -188,6 +194,7 @@ def main() -> None:
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_error_handler(on_error)
 
     if app.job_queue and config.REFRESH_EVERY_HOURS > 0:
         app.job_queue.run_repeating(
