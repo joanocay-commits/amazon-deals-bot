@@ -1,0 +1,34 @@
+name: Construir y publicar imagen Docker
+
+# Cada vez que subas cambios a la rama main, GitHub construye la imagen
+# y la publica en GHCR (el registro de contenedores de GitHub).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # permite lanzarlo a mano desde la pestaña Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+
+      - name: Iniciar sesion en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construir y publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/amazon-deals-bot:latest
