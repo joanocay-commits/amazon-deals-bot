@@ -30,7 +30,11 @@ logging.basicConfig(
 )
 log = logging.getLogger("bot")
 
-# Posts pendientes de confirmar: token -> {"photo": bytes, "caption": str}
+# Sube este numero en cada cambio. Sirve para comprobar en los logs que el NAS
+# esta corriendo de verdad la version nueva (y no una imagen vieja en cache).
+VERSION = "1.2"
+
+# Posts pendientes de confirmar: token -> payload
 PENDING: dict[str, dict] = {}
 
 
@@ -86,11 +90,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if product.price is not None:
         pricedb.record_price(product.asin, product.price)
 
-    # Producto y grafico como imagenes SEPARADAS (album de Telegram).
+    # Producto y grafico como imagenes separadas.
     product_bytes = compose.product_jpeg(product.image_url)
     graph_bytes = keepa_graph.download(product.asin)
     caption = post.build_caption(product, info)
     payload = {"product": product_bytes, "graph": graph_bytes, "caption": caption}
+
+    log.info(
+        "ASIN=%s titulo=%s precio=%s | imagen_url=%s producto=%s bytes keepa=%s bytes",
+        product.asin,
+        bool(product.title),
+        product.price,
+        bool(product.image_url),
+        len(product_bytes) if product_bytes else 0,
+        len(graph_bytes) if graph_bytes else 0,
+    )
 
     if config.AUTO_PUBLISH:
         await _send_post(context, config.CHANNEL_ID, payload)
@@ -203,7 +217,7 @@ def main() -> None:
             first=3600,
         )
 
-    log.info("Bot arrancado. Esperando mensajes…")
+    log.info("Bot arrancado (version %s). Esperando mensajes…", VERSION)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
