@@ -36,7 +36,7 @@ log = logging.getLogger("bot")
 
 # Sube este numero en cada cambio. Sirve para comprobar en los logs que el NAS
 # esta corriendo de verdad la version nueva (y no una imagen vieja en cache).
-VERSION = "1.3"
+VERSION = "1.4"
 
 # Posts pendientes de confirmar: token -> payload
 PENDING: dict[str, dict] = {}
@@ -94,20 +94,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if product.price is not None:
         pricedb.record_price(product.asin, product.price)
 
-    # Producto y grafico como imagenes separadas.
+    # Foto del producto: la descarga el NAS (funciona).
+    # Grafico de Keepa: le pasamos la URL a Telegram para que lo descargue EL,
+    # desde sus servidores (asi evitamos que Keepa bloquee la IP del NAS).
     product_bytes = compose.product_jpeg(product.image_url)
-    graph_bytes = keepa_graph.download(product.asin)
+    graph_url = keepa_graph.graph_url(product.asin) if config.SHOW_KEEPA_GRAPH else None
     caption = post.build_caption(product, info)
-    payload = {"product": product_bytes, "graph": graph_bytes, "caption": caption}
+    payload = {"product": product_bytes, "graph_url": graph_url, "caption": caption}
 
     log.info(
-        "ASIN=%s titulo=%s precio=%s | imagen_url=%s producto=%s bytes keepa=%s bytes",
+        "ASIN=%s titulo=%s precio=%s | imagen_url=%s producto=%s bytes | keepa_url=%s",
         product.asin,
         bool(product.title),
         product.price,
         bool(product.image_url),
         len(product_bytes) if product_bytes else 0,
-        len(graph_bytes) if graph_bytes else 0,
+        bool(graph_url),
     )
 
     if config.AUTO_PUBLISH:
@@ -136,29 +138,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def _send_post(context: ContextTypes.DEFAULT_TYPE, chat_id, payload: dict) -> None:
-    """Envia el post con send_photo (metodo probado y fiable).
+    """Envia el post: foto del producto con texto + grafico de Keepa (por URL).
 
-    Foto del producto con el texto + grafico de Keepa como segunda foto aparte.
-    Si falta alguna, se adapta. Si no hay ninguna, manda solo texto.
+    El grafico se manda como URL para que lo descargue Telegram. Si Telegram no
+    puede (Keepa le bloquea), se ignora y el resto del post se publica igual.
     """
     caption = payload["caption"]
     product = payload["product"]
-    graph = payload["graph"]
+    graph_url = payload.get("graph_url")
 
     if product:
         await context.bot.send_photo(
             chat_id=chat_id, photo=product, caption=caption, parse_mode="HTML"
         )
-        if graph:
-            await context.bot.send_photo(chat_id=chat_id, photo=graph)
-    elif graph:
-        await context.bot.send_photo(
-            chat_id=chat_id, photo=graph, caption=caption, parse_mode="HTML"
-        )
     else:
         await context.bot.send_message(
             chat_id=chat_id, text=caption, parse_mode="HTML"
         )
+
+    if graph_url:
+        try:
+            await context.bot.send_photo(chat_id=chat_id, photo=graph_url)
+        except Exception as e:
+            log.warning("Telegram no pudo cargar el grafico de Keepa por URL: %s", e)
 
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

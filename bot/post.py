@@ -52,8 +52,6 @@ def build_caption(product: Product, info: PriceInfo) -> str:
 
     lines.append("")
     lines.append(f'👉 <a href="{html.escape(product.affiliate_url, quote=True)}">Comprar en Amazon</a>')
-    lines.append("")
-    lines.append("📊 Histórico de precios incluido en la imagen")
 
     caption = "\n".join(lines)
     if len(caption) > CAPTION_LIMIT:
